@@ -4,7 +4,7 @@ description = "Multipart Form Data for Actix Web"
 version = "0.2.2"
 license = "GPL-3.0"
 authors = ["asonix <asonix@asonix.dog>"]
-repository = "git.asonix.cloud/asonix/actix-form-data"
+repository = "https://git.asonix.cloud/asonix/actix-form-data.git"
 readme = "README.md"
 keywords = ["actix", "form-data", "multipart", "async"]
 
