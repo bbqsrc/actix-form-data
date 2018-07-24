@@ -11,8 +11,8 @@ Add it to your dependencies.
 # Cargo.toml
 
 [dependencies]
-actix-web = "0.6.0"
-actix-form-data = "0.2.2"
+actix-web = "0.7.0"
+actix-form-data = "0.3.0"
 ```
 
 Require it in your project.
@@ -74,8 +74,7 @@ impl FilenameGenerator for Gen {
 }
 
 fn upload(
-    req: HttpRequest<Form>,
-    state: State<Form>,
+    (req, state): (HttpRequest<Form>, State<Form>),
 ) -> Box<Future<Item = HttpResponse, Error = Error>> {
     handle_multipart(req.multipart(), state.clone())
         .map(|uploaded_content| {
@@ -101,7 +100,7 @@ fn main() {
 
     server::new(move || {
         App::with_state(form.clone())
-            .resource("/upload", |r| r.method(http::Method::POST).with2(upload))
+            .resource("/upload", |r| r.method(http::Method::POST).with(upload))
     }).bind("127.0.0.1:8080")
         .unwrap()
         .run();

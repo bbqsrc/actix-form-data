@@ -83,8 +83,7 @@ impl ResponseError for Errors {
 }
 
 fn upload(
-    req: HttpRequest<AppState>,
-    state: State<AppState>,
+    (req, state): (HttpRequest<AppState>, State<AppState>),
 ) -> Box<Future<Item = HttpResponse, Error = Errors>> {
     handle_multipart(req.multipart(), state.form.clone())
         .map(|uploaded_content| {
@@ -120,7 +119,7 @@ fn main() {
     server::new(move || {
         App::with_state(state.clone())
             .middleware(Logger::default())
-            .resource("/upload", |r| r.method(http::Method::POST).with2(upload))
+            .resource("/upload", |r| r.method(http::Method::POST).with(upload))
     }).bind("127.0.0.1:8080")
         .unwrap()
         .start();
