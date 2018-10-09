@@ -12,10 +12,16 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 
-use std::{env, path::PathBuf, sync::atomic::{AtomicUsize, Ordering}};
+use std::{
+    env,
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-use actix_web::{http, server, App, AsyncResponder, HttpMessage, HttpRequest, HttpResponse, State,
-                error::ResponseError, middleware::Logger};
+use actix_web::{
+    error::ResponseError, http, middleware::Logger, server, App, AsyncResponder, HttpMessage,
+    HttpRequest, HttpResponse, State,
+};
 use form_data::*;
 use futures::Future;
 
@@ -120,9 +126,10 @@ fn main() {
         App::with_state(state.clone())
             .middleware(Logger::default())
             .resource("/upload", |r| r.method(http::Method::POST).with(upload))
-    }).bind("127.0.0.1:8080")
-        .unwrap()
-        .start();
+    })
+    .bind("127.0.0.1:8080")
+    .unwrap()
+    .start();
 
     sys.run();
 }

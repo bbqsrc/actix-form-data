@@ -17,19 +17,31 @@
  * along with Actix Form Data.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{collections::HashMap, fs::DirBuilder, path::{Path, PathBuf},
-          sync::{Arc, atomic::{AtomicUsize, Ordering}}};
+use std::{
+    collections::HashMap,
+    fs::DirBuilder,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
-use actix_web::{multipart, error::PayloadError};
+use actix_web::{error::PayloadError, multipart};
 use bytes::{Bytes, BytesMut};
-use futures::{Future, Stream, future::{lazy, result, Either, Executor}, sync::oneshot};
+use futures::{
+    future::{lazy, result, Either, Executor},
+    sync::oneshot,
+    Future, Stream,
+};
 use futures_fs::FsPool;
 use http::header::CONTENT_DISPOSITION;
 
-use error::Error;
 use super::FilenameGenerator;
-use types::{self, ContentDisposition, MultipartContent, MultipartForm, MultipartHash, NamePart,
-            Value};
+use error::Error;
+use types::{
+    self, ContentDisposition, MultipartContent, MultipartForm, MultipartHash, NamePart, Value,
+};
 
 fn consolidate(mf: MultipartForm) -> Value {
     mf.into_iter().fold(
@@ -184,35 +196,38 @@ where
 
         tx.send(res).map_err(|_| ())
     }))) {
-        | Ok(_) => (),
+        Ok(_) => (),
         Err(_) => return Box::new(result(Err(Error::MkDir))),
     };
 
     let counter = Arc::new(AtomicUsize::new(0));
 
-    Box::new(rx.then(|res| match res {
-        Ok(res) => res,
-        Err(_) => Err(Error::MkDir),
-    }).and_then(move |_| {
-        let write =
-            FsPool::from_executor(form.pool.clone()).write(stored_as.clone(), Default::default());
-        field
-            .map_err(Error::Multipart)
-            .and_then(move |bytes| {
-                let size = counter.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len();
+    Box::new(
+        rx.then(|res| match res {
+            Ok(res) => res,
+            Err(_) => Err(Error::MkDir),
+        })
+        .and_then(move |_| {
+            let write = FsPool::with_executor(form.pool.clone())
+                .write(stored_as.clone(), Default::default());
+            field
+                .map_err(Error::Multipart)
+                .and_then(move |bytes| {
+                    let size = counter.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len();
 
-                if size > form.max_file_size {
-                    Err(Error::FileSize)
-                } else {
-                    Ok(bytes)
-                }
-            })
-            .forward(write)
-            .map(move |_| MultipartContent::File {
-                filename,
-                stored_as,
-            })
-    }))
+                    if size > form.max_file_size {
+                        Err(Error::FileSize)
+                    } else {
+                        Ok(bytes)
+                    }
+                })
+                .forward(write)
+                .map(move |_| MultipartContent::File {
+                    filename,
+                    stored_as,
+                })
+        }),
+    )
 }
 
 fn handle_form_data<S>(

@@ -17,10 +17,18 @@
  * along with Actix Form Data.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{fmt, collections::{HashMap, VecDeque}, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use bytes::Bytes;
-use futures::{Future, future::{ExecuteError, Executor}};
+use futures::{
+    future::{ExecuteError, Executor},
+    Future,
+};
 use futures_cpupool::CpuPool;
 
 use super::FilenameGenerator;
@@ -258,31 +266,41 @@ impl Field {
         match *self {
             Field::Array(ref arr) => arr.valid_field(name),
             Field::Map(ref map) => map.valid_field(name),
-            Field::File(ref gen) => if name.is_empty() {
-                Some(FieldTerminator::File(Arc::clone(gen)))
-            } else {
-                None
-            },
-            Field::Int => if name.is_empty() {
-                Some(FieldTerminator::Int)
-            } else {
-                None
-            },
-            Field::Float => if name.is_empty() {
-                Some(FieldTerminator::Float)
-            } else {
-                None
-            },
-            Field::Text => if name.is_empty() {
-                Some(FieldTerminator::Text)
-            } else {
-                None
-            },
-            Field::Bytes => if name.is_empty() {
-                Some(FieldTerminator::Bytes)
-            } else {
-                None
-            },
+            Field::File(ref gen) => {
+                if name.is_empty() {
+                    Some(FieldTerminator::File(Arc::clone(gen)))
+                } else {
+                    None
+                }
+            }
+            Field::Int => {
+                if name.is_empty() {
+                    Some(FieldTerminator::Int)
+                } else {
+                    None
+                }
+            }
+            Field::Float => {
+                if name.is_empty() {
+                    Some(FieldTerminator::Float)
+                } else {
+                    None
+                }
+            }
+            Field::Text => {
+                if name.is_empty() {
+                    Some(FieldTerminator::Text)
+                } else {
+                    None
+                }
+            }
+            Field::Bytes => {
+                if name.is_empty() {
+                    Some(FieldTerminator::Bytes)
+                } else {
+                    None
+                }
+            }
         }
     }
 }
@@ -359,7 +377,8 @@ impl Map {
         trace!("Checking {:?} and {:?}", self, name);
         match name.pop_front() {
             Some(name_part) => match name_part {
-                NamePart::Map(part_name) => self.inner
+                NamePart::Map(part_name) => self
+                    .inner
                     .iter()
                     .find(|&&(ref item, _)| *item == part_name)
                     .and_then(|&(_, ref field)| field.valid_field(name)),

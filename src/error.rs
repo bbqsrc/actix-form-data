@@ -17,9 +17,16 @@
  * along with Actix Form Data.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-use std::{io, num::{ParseFloatError, ParseIntError}, string::FromUtf8Error};
+use std::{
+    io,
+    num::{ParseFloatError, ParseIntError},
+    string::FromUtf8Error,
+};
 
-use actix_web::{HttpResponse, error::{MultipartError, PayloadError, ResponseError}};
+use actix_web::{
+    error::{MultipartError, PayloadError, ResponseError},
+    HttpResponse,
+};
 
 #[derive(Debug, Fail)]
 pub enum Error {

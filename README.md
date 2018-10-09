@@ -12,7 +12,7 @@ Add it to your dependencies.
 
 [dependencies]
 actix-web = "0.7.0"
-actix-form-data = "0.3.0"
+actix-form-data = "0.3.1"
 ```
 
 Require it in your project.

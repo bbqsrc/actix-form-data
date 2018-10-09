@@ -47,7 +47,8 @@ fn main() {
     server::new(move || {
         App::with_state(form.clone())
             .resource("/upload", |r| r.method(http::Method::POST).with(upload))
-    }).bind("127.0.0.1:8080")
-        .unwrap()
-        .run();
+    })
+    .bind("127.0.0.1:8080")
+    .unwrap()
+    .run();
 }
