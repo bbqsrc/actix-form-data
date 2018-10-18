@@ -89,6 +89,55 @@ impl Value {
             _ => (),
         }
     }
+
+    pub fn map(self) -> Option<HashMap<String, Value>> {
+        match self {
+            Value::Map(map) => Some(map),
+            _ => None,
+        }
+    }
+
+    pub fn array(self) -> Option<Vec<Value>> {
+        match self {
+            Value::Array(vec) => Some(vec),
+            _ => None,
+        }
+    }
+
+    pub fn file(self) -> Option<(String, PathBuf)> {
+        match self {
+            Value::File(name, path) => Some((name, path)),
+            _ => None,
+        }
+    }
+
+    pub fn text(self) -> Option<String> {
+        match self {
+            Value::Text(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub fn int(self) -> Option<i64> {
+        match self {
+            Value::Int(int) => Some(int),
+            _ => None,
+        }
+    }
+
+    pub fn float(self) -> Option<f64> {
+        match self {
+            Value::Float(float) => Some(float),
+            _ => None,
+        }
+    }
+
+    pub fn bytes(self) -> Option<Bytes> {
+        match self {
+            Value::Bytes(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
 }
 
 impl From<MultipartContent> for Value {
