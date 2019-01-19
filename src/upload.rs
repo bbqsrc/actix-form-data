@@ -35,7 +35,6 @@ use futures::{
     Future, Stream,
 };
 use futures_fs::FsPool;
-use http::header::CONTENT_DISPOSITION;
 
 use super::FilenameGenerator;
 use error::Error;
@@ -93,50 +92,17 @@ fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
         })
 }
 
-fn parse_content_disposition<S>(field: &multipart::Field<S>) -> Result<ContentDisposition, Error>
+fn parse_content_disposition<S>(field: &multipart::Field<S>) -> ContentDisposition
 where
     S: Stream<Item = Bytes, Error = PayloadError>,
 {
-    let content_disposition = if let Some(cd) = field.headers().get(CONTENT_DISPOSITION) {
-        cd
-    } else {
-        return Err(Error::ContentDisposition);
-    };
-
-    let content_disposition = if let Ok(cd) = content_disposition.to_str() {
-        cd
-    } else {
-        return Err(Error::ContentDisposition);
-    };
-
-    Ok(content_disposition
-        .split(';')
-        .skip(1)
-        .filter_map(|section| {
-            let mut parts = section.splitn(2, '=');
-
-            let key = if let Some(key) = parts.next() {
-                key.trim()
-            } else {
-                return None;
-            };
-
-            let val = if let Some(val) = parts.next() {
-                val.trim()
-            } else {
-                return None;
-            };
-
-            Some((key, val.trim_matches('"')))
-        })
-        .fold(ContentDisposition::empty(), |mut acc, (key, val)| {
-            if key == "name" {
-                acc.name = Some(val.to_owned());
-            } else if key == "filename" {
-                acc.filename = Some(val.to_owned());
-            }
-            acc
-        }))
+    match field.content_disposition() {
+        Some(x) => ContentDisposition {
+            name: x.get_name().map(|v| v.to_string()),
+            filename: x.get_filename().map(|v| v.to_string()),
+        },
+        None => ContentDisposition::empty(),
+    }
 }
 
 #[cfg(unix)]
@@ -288,10 +254,7 @@ fn handle_stream_field<S>(
 where
     S: Stream<Item = Bytes, Error = PayloadError> + 'static,
 {
-    let content_disposition = match parse_content_disposition(&field) {
-        Ok(cd) => cd,
-        Err(e) => return Box::new(result(Err(e))),
-    };
+    let content_disposition = parse_content_disposition(&field);
 
     let name = match content_disposition.name {
         Some(name) => name,
