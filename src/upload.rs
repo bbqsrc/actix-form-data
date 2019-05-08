@@ -27,19 +27,19 @@ use std::{
     },
 };
 
-use actix_web::{error::PayloadError, multipart};
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures::{
-    future::{lazy, result, Either, Executor},
-    sync::oneshot,
+    future::{result, Either},
     Future, Stream,
 };
-use futures_fs::FsPool;
+use log::trace;
 
-use super::FilenameGenerator;
-use error::Error;
-use types::{
-    self, ContentDisposition, MultipartContent, MultipartForm, MultipartHash, NamePart, Value,
+use crate::{
+    error::Error,
+    types::{
+        self, ContentDisposition, MultipartContent, MultipartForm, MultipartHash, NamePart, Value,
+    },
+    FilenameGenerator,
 };
 
 fn consolidate(mf: MultipartForm) -> Value {
@@ -74,7 +74,7 @@ fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
             if part.len() == 1 && part.ends_with(']') {
                 NamePart::Array
             } else if part.ends_with(']') {
-                NamePart::Map(part.trim_right_matches(']').to_owned())
+                NamePart::Map(part.trim_end_matches(']').to_owned())
             } else {
                 NamePart::Map(part.to_owned())
             }
@@ -92,10 +92,7 @@ fn parse_multipart_name(name: String) -> Result<Vec<NamePart>, Error> {
         })
 }
 
-fn parse_content_disposition<S>(field: &multipart::Field<S>) -> ContentDisposition
-where
-    S: Stream<Item = Bytes, Error = PayloadError>,
-{
+fn parse_content_disposition(field: &actix_multipart::Field) -> ContentDisposition {
     match field.content_disposition() {
         Some(x) => ContentDisposition {
             name: x.get_name().map(|v| v.to_string()),
@@ -124,15 +121,12 @@ fn build_dir(stored_dir: PathBuf) -> Result<(), Error> {
         .map_err(|_| Error::MkDir)
 }
 
-fn handle_file_upload<S>(
-    field: multipart::Field<S>,
+fn handle_file_upload(
+    field: actix_multipart::Field,
     gen: Arc<FilenameGenerator>,
     filename: Option<String>,
     form: types::Form,
-) -> Box<Future<Item = MultipartContent, Error = Error>>
-where
-    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
-{
+) -> Box<Future<Item = MultipartContent, Error = Error>> {
     let filename = match filename {
         Some(filename) => filename,
         None => return Box::new(result(Err(Error::Filename))),
@@ -155,55 +149,36 @@ where
     let mut stored_dir = stored_as.clone();
     stored_dir.pop();
 
-    let (tx, rx) = oneshot::channel();
-
-    match form.pool.execute(Box::new(lazy(move || {
-        let res = build_dir(stored_dir.clone());
-
-        tx.send(res).map_err(|_| ())
-    }))) {
-        Ok(_) => (),
-        Err(_) => return Box::new(result(Err(Error::MkDir))),
-    };
+    let mkdir_fut = actix_threadpool::run(move || build_dir(stored_dir.clone()));
 
     let counter = Arc::new(AtomicUsize::new(0));
 
-    Box::new(
-        rx.then(|res| match res {
-            Ok(res) => res,
-            Err(_) => Err(Error::MkDir),
-        })
-        .and_then(move |_| {
-            let write = FsPool::with_executor(form.pool.clone())
-                .write(stored_as.clone(), Default::default());
-            field
-                .map_err(Error::Multipart)
-                .and_then(move |bytes| {
-                    let size = counter.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len();
+    Box::new(mkdir_fut.map_err(|_| Error::MkDir).and_then(move |_| {
+        let write = crate::file_future::write(stored_as.clone());
+        field
+            .map_err(Error::Multipart)
+            .and_then(move |bytes| {
+                let size = counter.fetch_add(bytes.len(), Ordering::Relaxed) + bytes.len();
 
-                    if size > form.max_file_size {
-                        Err(Error::FileSize)
-                    } else {
-                        Ok(bytes)
-                    }
-                })
-                .forward(write)
-                .map(move |_| MultipartContent::File {
-                    filename,
-                    stored_as,
-                })
-        }),
-    )
+                if size > form.max_file_size {
+                    Err(Error::FileSize)
+                } else {
+                    Ok(bytes)
+                }
+            })
+            .forward(write)
+            .map(move |_| MultipartContent::File {
+                filename,
+                stored_as,
+            })
+    }))
 }
 
-fn handle_form_data<S>(
-    field: multipart::Field<S>,
+fn handle_form_data(
+    field: actix_multipart::Field,
     term: types::FieldTerminator,
     form: types::Form,
-) -> Box<Future<Item = MultipartContent, Error = Error>>
-where
-    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
-{
+) -> Box<Future<Item = MultipartContent, Error = Error>> {
     trace!("In handle_form_data, term: {:?}", term);
     let term2 = term.clone();
 
@@ -247,13 +222,10 @@ where
     )
 }
 
-fn handle_stream_field<S>(
-    field: multipart::Field<S>,
+fn handle_stream_field(
+    field: actix_multipart::Field,
     form: types::Form,
-) -> Box<Future<Item = MultipartHash, Error = Error>>
-where
-    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
-{
+) -> Box<Future<Item = MultipartHash, Error = Error>> {
     let content_disposition = parse_content_disposition(&field);
 
     let name = match content_disposition.name {
@@ -284,42 +256,26 @@ where
     Box::new(fut.map(|content| (name, content)))
 }
 
-fn handle_stream<S>(
-    m: multipart::Multipart<S>,
+fn handle_stream(
+    m: actix_multipart::Multipart,
     form: types::Form,
-) -> Box<Stream<Item = MultipartHash, Error = Error>>
-where
-    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
-{
+) -> Box<Stream<Item = MultipartHash, Error = Error>> {
     Box::new(
         m.map_err(Error::from)
-            .map(move |item| match item {
-                multipart::MultipartItem::Field(field) => {
-                    info!("Field: {:?}", field);
-                    Box::new(
-                        handle_stream_field(field, form.clone())
-                            .map(From::from)
-                            .into_stream(),
-                    ) as Box<Stream<Item = MultipartHash, Error = Error>>
-                }
-                multipart::MultipartItem::Nested(m) => {
-                    info!("Nested");
-                    Box::new(handle_stream(m, form.clone()))
-                        as Box<Stream<Item = MultipartHash, Error = Error>>
-                }
+            .map(move |field| {
+                handle_stream_field(field, form.clone())
+                    .map(From::from)
+                    .into_stream()
             })
             .flatten(),
     )
 }
 
 /// Handle multipart streams from Actix Web
-pub fn handle_multipart<S>(
-    m: multipart::Multipart<S>,
+pub fn handle_multipart(
+    m: actix_multipart::Multipart,
     form: types::Form,
-) -> Box<Future<Item = Value, Error = Error>>
-where
-    S: Stream<Item = Bytes, Error = PayloadError> + 'static,
-{
+) -> Box<Future<Item = Value, Error = Error>> {
     Box::new(
         handle_stream(m, form.clone())
             .fold(

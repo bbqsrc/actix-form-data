@@ -1,29 +1,20 @@
-extern crate actix;
-extern crate actix_web;
-extern crate env_logger;
-#[macro_use]
-extern crate failure;
-extern crate form_data;
-extern crate futures;
-#[macro_use]
-extern crate log;
-extern crate mime;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-
 use std::{
     env,
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use actix_multipart::Multipart;
 use actix_web::{
-    error::ResponseError, http, middleware::Logger, server, App, AsyncResponder, HttpMessage,
-    HttpRequest, HttpResponse, State,
+    middleware::Logger,
+    web::{post, resource, Data},
+    App, HttpResponse, HttpServer, ResponseError,
 };
+use failure::Fail;
 use form_data::*;
 use futures::Future;
+use log::info;
+use serde_derive::{Deserialize, Serialize};
 
 struct Gen(AtomicUsize);
 
@@ -89,19 +80,20 @@ impl ResponseError for Errors {
 }
 
 fn upload(
-    (req, state): (HttpRequest<AppState>, State<AppState>),
+    (mp, state): (Multipart, Data<AppState>),
 ) -> Box<Future<Item = HttpResponse, Error = Errors>> {
-    handle_multipart(req.multipart(), state.form.clone())
-        .map(|uploaded_content| {
-            info!("Uploaded Content: {:?}", uploaded_content);
-            HttpResponse::Created().finish()
-        })
-        .map_err(JsonError::from)
-        .map_err(Errors::from)
-        .responder()
+    Box::new(
+        handle_multipart(mp, state.form.clone())
+            .map(|uploaded_content| {
+                info!("Uploaded Content: {:?}", uploaded_content);
+                HttpResponse::Created().finish()
+            })
+            .map_err(JsonError::from)
+            .map_err(Errors::from),
+    )
 }
 
-fn main() {
+fn main() -> Result<(), failure::Error> {
     env::set_var("RUST_LOG", "upload=info");
     env_logger::init();
 
@@ -122,14 +114,16 @@ fn main() {
 
     let state = AppState { form };
 
-    server::new(move || {
-        App::with_state(state.clone())
-            .middleware(Logger::default())
-            .resource("/upload", |r| r.method(http::Method::POST).with(upload))
+    HttpServer::new(move || {
+        App::new()
+            .data(state.clone())
+            .wrap(Logger::default())
+            .service(resource("/upload").route(post().to(upload)))
     })
-    .bind("127.0.0.1:8080")
-    .unwrap()
+    .bind("127.0.0.1:8080")?
     .start();
 
-    sys.run();
+    sys.run()?;
+
+    Ok(())
 }

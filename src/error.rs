@@ -23,19 +23,23 @@ use std::{
     string::FromUtf8Error,
 };
 
+use actix_multipart::MultipartError;
 use actix_web::{
-    error::{MultipartError, PayloadError, ResponseError},
+    error::{PayloadError, ResponseError},
     HttpResponse,
 };
+use bytes::Bytes;
+use failure::Fail;
+use futures::sync::mpsc::SendError;
 
 #[derive(Debug, Fail)]
 pub enum Error {
     #[fail(display = "Error saving file, {}", _0)]
     FsPool(#[cause] io::Error),
     #[fail(display = "Error parsing payload, {}", _0)]
-    Payload(#[cause] PayloadError),
+    Payload(PayloadError),
     #[fail(display = "Error in multipart creation, {}", _0)]
-    Multipart(#[cause] MultipartError),
+    Multipart(MultipartError),
     #[fail(display = "Failed to parse field, {}", _0)]
     ParseField(#[cause] FromUtf8Error),
     #[fail(display = "Failed to parse int, {}", _0)]
@@ -52,6 +56,8 @@ pub enum Error {
     MkDir,
     #[fail(display = "Failed to parse field name")]
     Field,
+    #[fail(display = "Could not write file")]
+    WriteFile,
     #[fail(display = "Too many fields in request")]
     FieldCount,
     #[fail(display = "Field too large")]
@@ -84,6 +90,12 @@ impl From<io::Error> for Error {
     }
 }
 
+impl From<SendError<Bytes>> for Error {
+    fn from(_: SendError<Bytes>) -> Self {
+        Error::WriteFile
+    }
+}
+
 impl ResponseError for Error {
     fn error_response(&self) -> HttpResponse {
         match *self {
@@ -98,6 +110,7 @@ impl ResponseError for Error {
             | Error::ContentDisposition
             | Error::Field
             | Error::FieldCount
+            | Error::WriteFile
             | Error::FieldSize
             | Error::FieldType
             | Error::Filename

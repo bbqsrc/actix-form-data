@@ -1,11 +1,10 @@
-extern crate actix_web;
-extern crate form_data;
-extern crate futures;
-extern crate mime;
-
 use std::path::PathBuf;
 
-use actix_web::{http, server, App, AsyncResponder, HttpMessage, HttpRequest, HttpResponse, State};
+use actix_multipart::Multipart;
+use actix_web::{
+    web::{post, resource, Data},
+    App, HttpResponse, HttpServer,
+};
 use form_data::{handle_multipart, Error, Field, FilenameGenerator, Form};
 use futures::Future;
 
@@ -19,18 +18,16 @@ impl FilenameGenerator for Gen {
     }
 }
 
-fn upload(
-    (req, state): (HttpRequest<Form>, State<Form>),
-) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    handle_multipart(req.multipart(), state.clone())
-        .map(|uploaded_content| {
+fn upload((mp, state): (Multipart, Data<Form>)) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    Box::new(
+        handle_multipart(mp, state.get_ref().clone()).map(|uploaded_content| {
             println!("Uploaded Content: {:?}", uploaded_content);
             HttpResponse::Created().finish()
-        })
-        .responder()
+        }),
+    )
 }
 
-fn main() {
+fn main() -> Result<(), failure::Error> {
     let form = Form::new()
         .field("Hey", Field::text())
         .field(
@@ -44,11 +41,13 @@ fn main() {
 
     println!("{:?}", form);
 
-    server::new(move || {
-        App::with_state(form.clone())
-            .resource("/upload", |r| r.method(http::Method::POST).with(upload))
+    HttpServer::new(move || {
+        App::new()
+            .data(form.clone())
+            .service(resource("/upload").route(post().to(upload)))
     })
-    .bind("127.0.0.1:8080")
-    .unwrap()
-    .run();
+    .bind("127.0.0.1:8080")?
+    .run()?;
+
+    Ok(())
 }

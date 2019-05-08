@@ -25,13 +25,9 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{
-    future::{ExecuteError, Executor},
-    Future,
-};
-use futures_cpupool::CpuPool;
+use log::trace;
 
-use super::FilenameGenerator;
+use crate::FilenameGenerator;
 
 /// The result of a succesfull parse through a given multipart stream.
 ///
@@ -74,8 +70,8 @@ impl Value {
         match (self, rhs) {
             (&mut Value::Map(ref mut hm), Value::Map(ref other)) => {
                 other.into_iter().fold(hm, |hm, (key, value)| {
-                    if hm.contains_key(key) {
-                        hm.get_mut(key).unwrap().merge(value.clone())
+                    if let Some(v) = hm.get_mut(key) {
+                        v.merge(value.clone());
                     } else {
                         hm.insert(key.to_owned(), value.clone());
                     }
@@ -480,16 +476,20 @@ pub struct Form {
     pub max_files: u32,
     pub max_file_size: usize,
     inner: Map,
-    pub pool: ArcExecutor,
 }
 
 impl Form {
     /// Create a new form
     ///
-    /// This also creates a new `CpuPool` to be used to stream files onto the filesystem. If you
-    /// wish to provide your own executor, use the `from_executor` method.
+    /// If you wish to provide your own executor, use the `with_executor` method.
     pub fn new() -> Self {
-        Form::from_executor(CpuPool::new_num_cpus())
+        Form {
+            max_fields: 100,
+            max_field_size: 10_000,
+            max_files: 20,
+            max_file_size: 10_000_000,
+            inner: Map::new(),
+        }
     }
 
     /// Set the maximum number of fields allowed in the upload
@@ -528,23 +528,6 @@ impl Form {
         self
     }
 
-    /// Create a new form with a given executor
-    ///
-    /// This executor is used to stream files onto the filesystem.
-    pub fn from_executor<E>(executor: E) -> Self
-    where
-        E: Executor<Box<Future<Item = (), Error = ()> + Send>> + Send + Sync + Clone + 'static,
-    {
-        Form {
-            max_fields: 100,
-            max_field_size: 10_000,
-            max_files: 20,
-            max_file_size: 10_000_000,
-            inner: Map::new(),
-            pool: ArcExecutor::new(executor),
-        }
-    }
-
     pub fn field(mut self, name: &str, field: Field) -> Self {
         self.inner = self.inner.field(name, field);
 
@@ -559,37 +542,6 @@ impl Form {
 impl fmt::Debug for Form {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Form({:?})", self.inner)
-    }
-}
-
-/// The executor type stored inside a `Form`
-///
-/// Any executor capable of being shared and executing boxed futures can be stored here.
-#[derive(Clone)]
-pub struct ArcExecutor {
-    inner: Arc<Executor<Box<Future<Item = (), Error = ()> + Send>> + Send + Sync + 'static>,
-}
-
-impl ArcExecutor {
-    /// Create a new ArcExecutor from an Executor
-    ///
-    /// This essentially wraps the given executor in an Arc
-    pub fn new<E>(executor: E) -> Self
-    where
-        E: Executor<Box<Future<Item = (), Error = ()> + Send>> + Send + Sync + Clone + 'static,
-    {
-        ArcExecutor {
-            inner: Arc::new(executor),
-        }
-    }
-}
-
-impl Executor<Box<Future<Item = (), Error = ()> + Send>> for ArcExecutor where {
-    fn execute(
-        &self,
-        future: Box<Future<Item = (), Error = ()> + Send>,
-    ) -> Result<(), ExecuteError<Box<Future<Item = (), Error = ()> + Send>>> {
-        self.inner.execute(future)
     }
 }
 

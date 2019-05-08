@@ -25,19 +25,18 @@
 //! # Example
 //!
 //!```rust
-//! extern crate actix_web;
-//! extern crate form_data;
-//! extern crate futures;
-//! extern crate mime;
-//!
 //! use std::path::PathBuf;
-//!
-//! use actix_web::{http, server, App, AsyncResponder, HttpMessage, HttpRequest, HttpResponse, State};
+//! 
+//! use actix_multipart::Multipart;
+//! use actix_web::{
+//!     web::{post, resource, Data},
+//!     App, HttpResponse, HttpServer,
+//! };
 //! use form_data::{handle_multipart, Error, Field, FilenameGenerator, Form};
 //! use futures::Future;
-//!
+//! 
 //! struct Gen;
-//!
+//! 
 //! impl FilenameGenerator for Gen {
 //!     fn next_filename(&self, _: &mime::Mime) -> Option<PathBuf> {
 //!         let mut p = PathBuf::new();
@@ -45,19 +44,17 @@
 //!         Some(p)
 //!     }
 //! }
-//!
-//! fn upload(
-//!     (req, state): (HttpRequest<Form>, State<Form>),
-//! ) -> Box<Future<Item = HttpResponse, Error = Error>> {
-//!     handle_multipart(req.multipart(), state.clone())
-//!         .map(|uploaded_content| {
+//! 
+//! fn upload((mp, state): (Multipart, Data<Form>)) -> Box<Future<Item = HttpResponse, Error = Error>> {
+//!     Box::new(
+//!         handle_multipart(mp, state.get_ref().clone()).map(|uploaded_content| {
 //!             println!("Uploaded Content: {:?}", uploaded_content);
 //!             HttpResponse::Created().finish()
-//!         })
-//!         .responder()
+//!         }),
+//!     )
 //! }
-//!
-//! fn main() {
+//! 
+//! fn main() -> Result<(), failure::Error> {
 //!     let form = Form::new()
 //!         .field("Hey", Field::text())
 //!         .field(
@@ -68,47 +65,34 @@
 //!                 .finalize(),
 //!         )
 //!         .field("files", Field::array(Field::file(Gen)));
-//!
+//! 
 //!     println!("{:?}", form);
-//!
-//!     server::new(move || {
-//!         App::with_state(form.clone())
-//!             .resource("/upload", |r| r.method(http::Method::POST).with(upload))
-//!     }).bind("127.0.0.1:8080")
-//!         .unwrap();
-//!         // .run()
+//! 
+//!     HttpServer::new(move || {
+//!         App::new()
+//!             .data(form.clone())
+//!             .service(resource("/upload").route(post().to(upload)))
+//!     })
+//!     .bind("127.0.0.1:8080")?;
+//!     // .run()?;
+//! 
+//!     Ok(())
 //! }
 //!```
-extern crate actix_web;
-extern crate bytes;
-#[macro_use]
-extern crate failure;
-extern crate futures;
-extern crate futures_cpupool;
-extern crate futures_fs;
-extern crate http;
-#[macro_use]
-extern crate log;
-extern crate mime;
-#[cfg(feature = "with-serde")]
-extern crate serde;
-#[cfg(feature = "with-serde")]
-#[macro_use]
-extern crate serde_derive;
 
 use std::path::PathBuf;
 
 mod error;
+mod file_future;
 mod types;
 mod upload;
-pub use self::error::Error;
-pub use self::types::*;
-pub use self::upload::handle_multipart;
+
+pub use self::{error::Error, types::*, upload::handle_multipart};
 
 /// A trait for types that produce filenames for uploade files
 ///
 /// Currently, the mime type provided to the `next_filename` method is guessed from the uploaded
 /// file's original filename, so relying on this to be 100% accurate is probably a bad idea.
 pub trait FilenameGenerator: Send + Sync {
-    fn next_filename(&self, &mime::Mime) -> Option<PathBuf>;
+    fn next_filename(&self, mime_type: &mime::Mime) -> Option<PathBuf>;
 }
