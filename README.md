@@ -11,15 +11,14 @@ Add it to your dependencies.
 # Cargo.toml
 
 [dependencies]
-actix-web = "0.7.15"
-actix-form-data = "0.3.2"
+actix-web = "1.0.0-beta.3"
+actix-multipart = "0.1.0-beta.1"
+actix-form-data = "0.4.0-beta.2"
 ```
 
 Require it in your project.
 ```rust
 // src/lib.rs or src/main.rs
-
-extern crate form_data;
 
 use form_data::{Field, Form, Value};
 ```
@@ -33,7 +32,11 @@ This creates a form with one required field named "field-name" that will be pars
 
 Then, pass it to `handle_multipart` in your request handler.
 ```rust
-let future = form_data::handle_multipart(req.multipart, form);
+fn request_handler(mp: Multipart, state: Data<State>) -> ... {
+    let future = form_data::handle_multipart(mp, state.form);
+
+    ...
+}
 ```
 
 This returns a `Future<Item = Value, Error = form_data::Error>`, which can be used to
@@ -41,10 +44,10 @@ fetch your data.
 
 ```rust
 let field_value = match value {
-  Value::Map(mut hashmap) => {
-    hashmap.remove("field-name")?
-  }
-  _ => return None,
+    Value::Map(mut hashmap) => {
+        hashmap.remove("field-name")?
+    }
+    _ => return None,
 };
 ```
 
@@ -52,14 +55,13 @@ let field_value = match value {
 ```rust
 /// examples/simple.rs
 
-extern crate actix_web;
-extern crate form_data;
-extern crate futures;
-extern crate mime;
-
 use std::path::PathBuf;
 
-use actix_web::{http, server, App, AsyncResponder, HttpMessage, HttpRequest, HttpResponse, State};
+use actix_multipart::Multipart;
+use actix_web::{
+    web::{post, resource, Data},
+    App, HttpResponse, HttpServer,
+};
 use form_data::{handle_multipart, Error, Field, FilenameGenerator, Form};
 use futures::Future;
 
@@ -73,18 +75,16 @@ impl FilenameGenerator for Gen {
     }
 }
 
-fn upload(
-    (req, state): (HttpRequest<Form>, State<Form>),
-) -> Box<Future<Item = HttpResponse, Error = Error>> {
-    handle_multipart(req.multipart(), state.clone())
-        .map(|uploaded_content| {
+fn upload((mp, state): (Multipart, Data<Form>)) -> Box<Future<Item = HttpResponse, Error = Error>> {
+    Box::new(
+        handle_multipart(mp, state.get_ref().clone()).map(|uploaded_content| {
             println!("Uploaded Content: {:?}", uploaded_content);
             HttpResponse::Created().finish()
-        })
-        .responder()
+        }),
+    )
 }
 
-fn main() {
+fn main() -> Result<(), failure::Error> {
     let form = Form::new()
         .field("Hey", Field::text())
         .field(
@@ -98,12 +98,16 @@ fn main() {
 
     println!("{:?}", form);
 
-    server::new(move || {
-        App::with_state(form.clone())
-            .resource("/upload", |r| r.method(http::Method::POST).with(upload))
-    }).bind("127.0.0.1:8080")
-        .unwrap()
-        .run();
+    HttpServer::new(move || {
+        App::new()
+            .data(form.clone())
+            .service(resource("/upload").route(post().to(upload)))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()?;
+
+    Ok(())
+}
 }
 ```
 
