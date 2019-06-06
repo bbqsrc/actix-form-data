@@ -1,7 +1,7 @@
 [package]
 name = "actix-form-data"
 description = "Multipart Form Data for Actix Web"
-version = "0.4.0-beta.2"
+version = "0.4.0"
 license = "GPL-3.0"
 authors = ["asonix <asonix@asonix.dog>"]
 repository = "https://git.asonix.dog/Aardwolf/actix-form-data.git"
@@ -13,10 +13,10 @@ edition = "2018"
 name = "form_data"
 
 [dependencies]
-actix-multipart = "0.1.0-beta.1"
+actix-multipart = "0.1.0"
 actix-rt = "0.2.2"
 actix-threadpool = "0.1.0"
-actix-web = "1.0.0-beta.3"
+actix-web = "1.0.0"
 bytes = "0.4.7"
 failure = "0.1"
 futures = "0.1.21"
